@@ -1,0 +1,14 @@
+# 파이썬 관련 쓰레기 파일 무시
+__pycache__/
+*.py[cod]
+venv/
+
+# VS Code 설정 파일 무시
+.vscode/
+
+# C++ 빌드 파일 무시 (나중에 중요해짐!)
+build/
+*.o
+*.out
+*.exe
+
