@@ -52,5 +52,5 @@
 
 ### 1. Clone Repository
 ```bash
-git clone [https://github.com/steppenhj/Neuro-Drive-C-.git](https://github.com/steppenhj/Neuro-Drive-C-.git)
+git clone [https://github.com/steppenhj/Neuro-Drive-CPP.git](https://github.com/steppenhj/Neuro-Drive-C-.git)
 cd Neuro-Drive-C++
