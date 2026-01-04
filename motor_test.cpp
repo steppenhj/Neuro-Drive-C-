@@ -79,11 +79,13 @@ public:
         int pwm_val = abs(speed) * 4095 / 100;
 
         if (speed > 0) {
-            setPWM(1, 4096, 0); // AIN1 High
-            setPWM(2, 0, 4096); // AIN2 Low
-        } else {
+            // [수정됨] 원래 Low였던 것을 High로, High였던 것을 Low로 변경
             setPWM(1, 0, 4096); // AIN1 Low
             setPWM(2, 4096, 0); // AIN2 High
+        } else {
+            // [수정됨] 반대로 변경
+            setPWM(1, 4096, 0); // AIN1 High
+            setPWM(2, 0, 4096); // AIN2 Low
         }
         setPWM(0, 0, pwm_val); // PWMA Speed
     }
@@ -93,11 +95,13 @@ public:
         int pwm_val = abs(speed) * 4095 / 100;
 
         if (speed > 0) {
-            setPWM(3, 4096, 0); // BIN1 High
-            setPWM(4, 0, 4096); // BIN2 Low
-        } else {
+            // [수정됨] 원래 Low였던 것을 High로, High였던 것을 Low로 변경
             setPWM(3, 0, 4096); // BIN1 Low
             setPWM(4, 4096, 0); // BIN2 High
+        } else {
+            // [수정됨] 반대로 변경
+            setPWM(3, 4096, 0); // BIN1 High
+            setPWM(4, 0, 4096); // BIN2 Low
         }
         setPWM(5, 0, pwm_val); // PWMB Speed
     }
