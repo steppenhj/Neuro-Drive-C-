@@ -13,8 +13,8 @@ BAUD_RATE = 115200
 
 # [수정됨] 조향 튜닝 (좌회전이 약하면 값을 키우세요!)
 # 기존 500 -> 600으로 변경 (범위가 900~2100으로 넓어짐)
-STEERING_FACTOR = 600 
-CENTER_PWM = 1200    # 만약 직진이 안 맞으면 이 값을 1450 or 1550으로 조절
+STEERING_FACTOR = 500 
+CENTER_PWM = 1500    # 만약 직진이 안 맞으면 이 값을 1450 or 1550으로 조절
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 socketio = SocketIO(app, cors_allowed_origins="*")
