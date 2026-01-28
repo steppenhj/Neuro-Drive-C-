@@ -7,53 +7,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <style>
-        /* [수정] html, body 모두에 터치 및 선택 방지 적용 */
-        html, body { 
-            margin: 0; 
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            background-color: #050505; 
-            color: #00ffcc; 
-            font-family: 'Consolas', monospace; 
-            overflow: hidden; /* 스크롤바 숨김 */
-            
-            /* ▼▼▼ [핵심] 터치로 확대/스크롤/더블탭 줌 금지 ▼▼▼ */
-            touch-action: none; 
-            
-            /* 텍스트 선택/복사 금지 */
-            user-select: none;
-            -webkit-user-select: none; /* 사파리/크롬 호환 */
-            -webkit-touch-callout: none; /* iOS 길게 누르기 메뉴 금지 */
-        }
-
- #video_feed { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
-            object-fit: contain; 
-            
-            z-index: 0;   /* 맨 뒤 */
-            opacity: 1.0; /* 투명도 끄기 (선명하게) */
-        }
-
-        /* [수정 2] 격자 무늬: 카메라 바로 위 */
-        .grid-overlay { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
-            background-image: linear-gradient(rgba(0, 255, 204, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 204, 0.1) 1px, transparent 1px); 
-            background-size: 50px 50px; 
-            
-            z-index: 1; /* 카메라(0) 보다 위 */
-            pointer-events: none; 
-        }
+        body { margin: 0; background-color: #050505; color: #00ffcc; font-family: 'Consolas', monospace; overflow: hidden; touch-action: none; }
+        #video_feed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -2; opacity: 0.4; }
+        .grid-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: linear-gradient(rgba(0, 255, 204, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 204, 0.1) 1px, transparent 1px); background-size: 50px 50px; z-index: -1; pointer-events: none; }
         
-        #hud { position: absolute; top: 20px; left: 20px; border-left: 3px solid #00ffcc; padding-left: 10px; pointer-events: none; /* HUD가 터치 방해하지 않게 */ }
+        #hud { position: absolute; top: 20px; left: 20px; border-left: 3px solid #00ffcc; padding-left: 10px; }
         .status-line { margin: 5px 0; font-size: 14px; text-shadow: 0 0 5px #00ffcc; }
 
         #right_panel { position: absolute; top: 20px; right: 20px; width: 160px; display: flex; flex-direction: column; gap: 10px; }
@@ -61,15 +19,6 @@
         .label { font-size: 10px; color: #aaa; margin-bottom: 2px; display: block; }
         .val { font-size: 24px; font-weight: bold; }
         .unit { font-size: 12px; color: #888; }
-
-        /* [수정 3] UI 요소들을 맨 앞으로 가져오기 (z-index: 10) */
-        #hud, #right_panel, #log_terminal, #zone_joystick {
-            z-index: 10; /* 모든 배경보다 위 */
-        }
-        
-        button {
-            touch-action: manipulation; /* 버튼 클릭 반응성 향상 */
-        }
 
         #engine_btn {
             width: 100%; height: 40px;
@@ -82,26 +31,7 @@
         #log_terminal { position: absolute; bottom: 20px; right: 20px; width: 300px; height: 150px; background: rgba(0, 0, 0, 0.8); border: 1px solid #333; font-size: 11px; color: #0f0; padding: 5px; overflow-y: auto; display: flex; flex-direction: column-reverse; pointer-events: none; }
         .log-entry { margin: 2px 0; border-bottom: 1px solid #222; }
         
-        #zone_joystick { position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px; z-index: 10; }
-
-        #rec_btn {
-            width: 100%; height: 40px; margin-top: 10px;
-            background: #111; border: 2px solid #555; color: #555;
-            font-family: 'Consolas', monospace; font-weight: bold; font-size: 14px;
-            cursor: pointer; transition: 0.3s;
-        }
-        #rec_btn.on { 
-            background: rgba(255, 0, 0, 0.3); 
-            border-color: #ff0000; 
-            color: #ff0000; 
-            box-shadow: 0 0 15px #ff0000; 
-            animation: pulse 1.5s infinite;
-        }
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
+        #zone_joystick { position: absolute; top: 60%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px; }
     </style>
 </head>
 <body>
@@ -115,7 +45,6 @@
 
     <div id="right_panel">
         <button id="engine_btn" onclick="toggleEngine()">ENGINE START</button>
-        <button id="rec_btn" onclick="toggleRecording()">REC DATA</button>
 
         <div class="panel-box">
             <span class="label">ENCODER (RAW)</span>
@@ -165,15 +94,20 @@
             terminal.prepend(newLog);
         });
 
+/* [수정됨] 엔코더 값 수신 (빠름) */
         socket.on('encoder_update', (data) => {
             document.getElementById('disp_speed').innerText = data.speed;
         });
 
+        /* [수정됨] 상태 및 온도 수신 (1초마다) */
         socket.on('status_update', (data) => {
+            // 온도
             const tempElem = document.getElementById('disp_temp');
             tempElem.innerText = data.cpu_temp.toFixed(1);
             if(data.cpu_temp > 60) tempElem.style.color = "red";
             else tempElem.style.color = "#00ffcc";
+
+            // (옵션) 엔진 상태가 서버와 동기화 안됐을 경우를 대비해 여기서도 체크 가능
         });
 
         var manager = nipplejs.create({ 
@@ -224,26 +158,6 @@
             const latency = Date.now() - data.timestamp;
             document.getElementById('latency').innerText = latency;
         });
-
-        function toggleRecording() {
-            socket.emit('toggle_recording');
-        }
-
-        socket.on('recording_update', (data) => {
-            const btn = document.getElementById('rec_btn');
-            if(data.recording) {
-                btn.innerText = "RECORDING...";
-                btn.classList.add('on');
-            } else {
-                btn.innerText = "REC DATA";
-                btn.classList.remove('on');
-            }
-        });
-
-        // [중요] 더블 탭 확대 방지 (JavaScript 강제 차단)
-        document.addEventListener('dblclick', function(event) {
-            event.preventDefault();
-        }, { passive: false });
     </script>
 </body>
 </html>

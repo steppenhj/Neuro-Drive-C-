@@ -3,9 +3,6 @@ import time
 import serial
 import cv2
 import eventlet
-import os
-import datetime
-import csv
 from eventlet.semaphore import Semaphore
 eventlet.monkey_patch()
 
@@ -29,55 +26,47 @@ stm32_serial = None
 engine_running = False 
 camera = None
 
-# [NEW] 데이터 수집 관련 변수
-recording = False
-base_dir = "captured_data"      # 최상위 폴더
-current_session_dir = None      # 현재 시도(Run) 저장 폴더
-csv_file = None
-csv_writer = None
-current_throttle = 0.0 
-current_steering = 0.0
-
-# 기본 폴더 생성
-if not os.path.exists(base_dir):
-    os.makedirs(base_dir)
-
 # ==========================================
-# 2. 카메라 및 녹화 (폴더 분리 로직 적용)
+# 2. 카메라 설정 (라즈베리파이 5 GStreamer 호환)
 # ==========================================
 def get_camera():
     global camera
     if camera is None:
         try:
-            # GStreamer 파이프라인 (YUY2 -> BGR)
+            # [수정] 라즈베리파이 5용 GStreamer 파이프라인
+            # libcamerasrc를 통해 영상을 받아와서 OpenCV가 이해하는 포맷으로 변환
+            # [수정된 파이프라인] YUY2 포맷을 명시하여 ISP를 강제 구동
+# [수정된 파이프라인] 카메라가 선호하는 I420 포맷 사용
             pipeline = (
                 "libcamerasrc ! "
-                "video/x-raw, format=YUY2, width=640, height=480, framerate=30/1 ! "
+                "video/x-raw, format=I420, width=640, height=480, framerate=30/1 ! "
                 "videoconvert ! "
                 "video/x-raw, format=BGR ! "
                 "appsink drop=true sync=false"
             )
+            
+            # GStreamer 백엔드로 카메라 열기
             camera = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-            if camera.isOpened():
-                print("[INFO] Camera Connected via GStreamer")
-            else:
-                print("[ERROR] GStreamer Pipeline Failed to Open")
+            
+            if not camera.isOpened():
+                print("[ERROR] Camera failed to open via GStreamer.")
                 camera = None
+            else:
+                print("[SUCCESS] Camera opened via GStreamer pipeline.")
+                
         except Exception as e:
-            print(f"[ERROR] Camera Init Exception: {e}")
+            print(f"[ERROR] Camera Init Failed: {e}")
             camera = None
+            
     return camera
 
 def generate_frames():
-    global recording, csv_writer, current_throttle, current_steering, camera, current_session_dir
-    
     while True:
         cam = get_camera()
         
+        # 카메라가 없거나 연결 실패 시, 검은 화면 대신 빈 데이터 전송 (조종은 되게 함)
         if cam is None or not cam.isOpened():
-            socketio.sleep(1.0)
-            if cam is not None: cam.release()
-            camera = None
+            socketio.sleep(1.0) # 1초 대기 후 재시도
             continue
 
         success, frame = cam.read()
@@ -85,32 +74,13 @@ def generate_frames():
             socketio.sleep(0.1)
             continue
         
-        # [NEW] 녹화 로직: 현재 세션 폴더에 저장
-        if recording and csv_writer and current_session_dir:
-            try:
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                img_filename = f"img_{timestamp}.jpg"
-                
-                # [중요] 이미지를 '현재 세션 폴더' 안에 저장
-                full_path = os.path.join(current_session_dir, img_filename)
-                
-                cv2.imwrite(full_path, frame)
-                
-                # CSV에는 파일명만 기록 (같은 폴더에 있으므로)
-                csv_writer.writerow([img_filename, current_steering, current_throttle])
-                
-                socketio.sleep(0.1) 
-            except Exception as e:
-                print(f"[ERROR] Save Failed: {e}")
-
-        try:
-            ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-            if ret:
-                frame_bytes = buffer.tobytes()
-                yield (b'--frame\r\n'b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        except Exception as e:
-            pass
-            
+        # 이미지 압축 (화질 70%)
+        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+        frame_bytes = buffer.tobytes()
+        
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        
         eventlet.sleep(0.01)
 
 # ==========================================
@@ -203,67 +173,39 @@ def handle_engine():
     emit('engine_update', {'running': engine_running})
     if not engine_running: send_to_stm32(0, CENTER_PWM)
 
-# [NEW] 녹화 토글 핸들러 (폴더 생성 로직 포함)
-@socketio.on('toggle_recording')
-def handle_recording():
-    global recording, csv_file, csv_writer, current_session_dir
-    recording = not recording
-    
-    if recording:
-        # 1. 현재 시간으로 폴더 이름 생성 (예: 20260128_230010)
-        session_name = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        current_session_dir = os.path.join(base_dir, session_name)
-        
-        # 2. 폴더 생성
-        if not os.path.exists(current_session_dir):
-            os.makedirs(current_session_dir)
-            
-        # 3. 해당 폴더 안에 로그 파일 생성
-        log_path = os.path.join(current_session_dir, "data_log.csv")
-        csv_file = open(log_path, 'w', newline='')
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(['image', 'steering', 'throttle'])
-        
-        sys_log(f"Recording Session: {session_name}", "SAVE")
-    else:
-        # 녹화 종료
-        if csv_file:
-            csv_file.close()
-            csv_file = None
-            csv_writer = None
-        current_session_dir = None # 세션 초기화
-        sys_log("Recording Stopped", "INFO")
-        
-    emit('recording_update', {'recording': recording})
-
 @socketio.on('control_command')
 def handle_control_command(data):
-    global current_throttle, current_steering
-    
     if not engine_running: return
     try:
         throttle = float(data.get('throttle', 0))
         steering = float(data.get('steering', 0))
         
-        current_throttle = throttle
-        current_steering = steering
-        
+        # ▼▼▼ [추가된 부분] 코너링 부스터 (Cornering Booster) ▼▼▼
+        # 설명: 조향각(steering)이 클수록 throttle을 증폭시킵니다.
+        # steering 절대값이 1.0(최대)이면 힘을 1.8배까지 올림 (7.4V 전압 부족 보상)
         if abs(steering) > 0.1:
-            boost_factor = 1.0 + (abs(steering) * 0.8)
+            boost_factor = 1.0 + (abs(steering) * 0.8) # 최대 1.8배
             throttle = throttle * boost_factor
-        
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
         pwm_speed = int(throttle * 999)
+        
+        # 하드웨어 한계인 999를 넘지 않도록 안전장치 (Clipping)
         pwm_speed = max(-999, min(999, pwm_speed))
 
         pwm_angle = int(CENTER_PWM + (steering * STEERING_FACTOR))
-        pwm_angle = max(600, min(2400, pwm_angle))
+        # 펌웨어에서 제한하겠지만 여기서도 한 번 더 안전장치
+        pwm_angle = max(600, min(2400, pwm_angle)) 
         
         send_to_stm32(pwm_speed, pwm_angle)
     except Exception:
         pass
 
+# ==========================================
+# 6. 메인 실행
+# ==========================================
 if __name__ == '__main__':
-    print("Starting Neuro-Driver Async Server with Session Recording...")
+    print("Starting Neuro-Driver Async Server with GStreamer...")
     if connect_serial():
         socketio.start_background_task(read_serial_task)
         socketio.start_background_task(status_monitor_task)

@@ -12,3 +12,6 @@ build/
 *.out
 *.exe
 
+web/captured_data/
+*.zip
+__pycache__/
